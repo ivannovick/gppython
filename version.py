@@ -6,9 +6,8 @@ try:
     connection = psycopg2.connect(database = "postgres")
 
     cursor = connection.cursor()
-
-    # Print PostgreSQL version
     cursor.execute("SELECT version();")
+
     record = cursor.fetchone()
     print("VERSION: ", record,"\n")
 
