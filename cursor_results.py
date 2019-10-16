@@ -14,6 +14,7 @@ try:
     cursor.execute("SELECT * FROM food")
 
     print(cursor.description)
+    print("Row Count: ", cursor.rowcount)
     for record in cursor:
         print (record)
 
