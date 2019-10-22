@@ -19,6 +19,7 @@ table = con.table('news_people').limit(10)
 p = table['people_csv']
 results = p.execute()
 for row in results:
-    print(row)
+    if row:
+        print("ROW: " +  row)
 
 
