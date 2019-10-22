@@ -4,8 +4,6 @@ import psycopg2
 # $ wget https://archive.ics.uci.edu/ml/machine-learning-databases/20newsgroups-mld/20_newsgroups.tar.gz
 # $ tar xzvf 20_newsgroups.tar.gz
 
-connection = None
-cursor = None
 
 def getNewsGroups():
     ngroups = []
@@ -34,7 +32,7 @@ def getMsgFileNames(grp):
 
     return fnames
 
-def loadContent(fname, g, f):
+def loadContent(cursor, fname, g, f):
     cnt = ""
     linesSection = False
     cStarted = False
@@ -50,35 +48,39 @@ def loadContent(fname, g, f):
                 continue
             if ln.startswith("Lines: "):
                 linesSection = True
-    sql = "INSERT INTO messages VALUES('" + g + "'," + f + ",'" + cnt + "')"
-    try:
-        cursor.execute(sql)
-    except (Exception) as error :
-        print(sql)
-        print("Failed INSERT: ", error)
-
-
+    sql = "INSERT INTO news VALUES('" + g + "'," + f + ",'" + cnt + "')"
+    cursor.execute(sql)
  
-def loadNewsGroup(grp):
+def loadNewsGroup(cursor, grp):
     msgFiles = getMsgFileNames(g)
     for f in msgFiles:
         fname = "./20_newsgroups/" + g + "/" + f
-        content = loadContent(fname, g, f)
+        content = loadContent(cursor, fname, g, f)
         break
 
 if __name__ == '__main__':
-    connection = psycopg2.connect(database="pytest")
-    cursor = connection.cursor()
     try:
-        cursor.execute("DROP TABLE if exists messages")
-        cursor.execute("CREATE TABLE messages(newsgroup text, id int, msg text) distributed randomly")
-    except (Exception) as error :
-        print("Failed CREATE TABLE: ", error)
+        connection = psycopg2.connect(database="pytest")
+        cursor = connection.cursor()
+        cursor.execute("DROP TABLE if exists news;")
+        cursor.execute("CREATE TABLE news(newsgroup text, id int, msg text) distributed randomly;")
 
-    # load data
-    newsGroups = getNewsGroups()
-    for g in newsGroups:
-        print ("Loading group ", g)
-        loadNewsGroup(g)
-        break
+        # load data
+        newsGroups = getNewsGroups()
+        for g in newsGroups:
+            print ("Loading group ", g)
+            loadNewsGroup(cursor, g)
+            break
 
+        connection.commit()
+
+    except (Exception, psycopg2.Error) as error :
+        print ("Error while connecting to PostgreSQL", error)
+
+    finally:
+        if(connection):
+            cursor.close()
+            connection.close()
+            print("PostgreSQL connection is closed")
+
+    
