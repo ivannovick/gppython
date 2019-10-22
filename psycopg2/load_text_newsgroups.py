@@ -53,10 +53,16 @@ def loadContent(cursor, fname, g, f):
  
 def loadNewsGroup(cursor, grp):
     msgFiles = getMsgFileNames(g)
+    counter = 0
     for f in msgFiles:
+        counter += 1
         fname = "./20_newsgroups/" + g + "/" + f
-        content = loadContent(cursor, fname, g, f)
-        break
+        try:
+            content = loadContent(cursor, fname, g, f)
+        except:
+            print("Skip: " + fname)
+        if counter % 50 == 0:
+            print("Group %s Loaded %d" % (grp, counter))
 
 if __name__ == '__main__':
     try:
@@ -70,7 +76,6 @@ if __name__ == '__main__':
         for g in newsGroups:
             print ("Loading group ", g)
             loadNewsGroup(cursor, g)
-            break
 
         connection.commit()
 
