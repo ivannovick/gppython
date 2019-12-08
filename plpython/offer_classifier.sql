@@ -176,3 +176,131 @@ SELECT * from logreg_model_by_user;
 
 
 
+V2 =============================================
+
+
+
+CREATE TABLE offer (offerid int, userid int,
+                    asktimes int, askbackoffdays int,
+                    bought_offer int);
+INSERT into offer values(1, 1, 2, 1, 0);
+INSERT into offer values(2, 1, 2, 3, 0);
+INSERT into offer values(3, 1, 4, 7, 1);
+INSERT into offer values(4, 1, 4, 7, 1);
+INSERT into offer values(5, 1, 6, 7, 1);
+INSERT into offer values(6, 2, 2, 7, 0);
+INSERT into offer values(7, 2, 2, 7, 0);
+INSERT into offer values(8, 2, 4, 7, 0);
+INSERT into offer values(9, 2, 4, 7, 0);
+INSERT into offer values(10, 2, 6, 7, 1);
+SELECT * FROM offer;
+
+CREATE or replace FUNCTION array_append_2d(integer[][], integer[])
+    RETURNS integer[][]
+    LANGUAGE SQL
+    AS 'select array_cat($1, ARRAY[$2])'
+    IMMUTABLE
+;
+CREATE ORDERED AGGREGATE array_agg_array(integer[])
+(
+    SFUNC = array_append_2d,
+    STYPE = integer[][]
+);
+
+CREATE TABLE offers_by_user_train_agg AS
+SELECT
+    userid,
+    array_agg(offerid) as ids,
+    array_agg_array(feature_vec) AS features,
+    array_agg(bought_offer) as y_vector
+FROM (
+    SELECT
+        userid,
+        offerid,
+        bought_offer,
+        ARRAY[
+            asktimes,
+            askbackoffdays
+        ] AS feature_vec
+    FROM offer
+) tmp
+GROUP BY userid;
+
+Select * from offers_by_user_train_agg;
+create language plpythonu;
+
+CREATE OR REPLACE FUNCTION
+logreg_train(features integer[][], targets integer[])
+RETURNS bytea
+LANGUAGE plpythonu
+AS
+$$
+def logreg_train(features, targets):
+    from sklearn.linear_model import LogisticRegression
+    import six
+    pickle = six.moves.cPickle
+    logreg = LogisticRegression(solver='lbfgs')
+    logreg.fit(features, targets)
+    return pickle.dumps(logreg, protocol=2)
+
+return logreg_train(features, targets)
+$$;
+
+CREATE TABLE logreg_model_by_user
+AS SELECT
+    userid,
+    logreg_train(features, y_vector) as model,
+    now() as serialized_on
+FROM offers_by_user_train_agg;
+
+SELECT * From logreg_model_by_user;
+
+
+CREATE TABLE other_offers (asktimes int, askbackoffdays int);
+insert into other_offers values (1, 1);
+insert into other_offers values (2, 2);
+insert into other_offers values (3, 3);
+insert into other_offers values (4, 4);
+insert into other_offers values (5, 5);
+insert into other_offers values (6, 6);
+insert into other_offers values (7, 7);
+insert into other_offers values (8, 8);
+insert into other_offers values (9, 9);
+
+CREATE TABLE other_offers_packed AS
+SELECT ARRAY[asktimes, askbackoffdays]
+AS feature_vec
+FROM other_offers;
+
+SELECT * from other_offers_packed;
+
+CREATE OR REPLACE FUNCTION
+        sklearn_predict_1(serialized_model bytea, features integer[])
+RETURNS float
+LANGUAGE plpythonu
+AS
+$$
+def sklearn_predict_1(serialized_model, features):
+    import six
+    pickle = six.moves.cPickle
+    model = pickle.loads(serialized_model)
+    result = model.predict_proba([features])
+    return result[0, 1]
+
+return sklearn_predict_1(serialized_model, features)
+$$;
+
+
+
+SELECT
+    feature_vec,
+    sklearn_predict_1((SELECT model::bytea from logreg_model_by_user where userid), feature_vec)
+FROM other_offers_packed;
+
+<!-- cross join to get all combinations and score possible marketing options to find BUY predictions-->
+
+SELECT logreg_model_by_user.userid,
+       other_offers_packed.feature_vec,
+       sklearn_predict_1(logreg_model_by_user.model,other_offers_packed.feature_vec)
+From logreg_model_by_user, other_offers_packed
+ORDER BY 3 DESC;
